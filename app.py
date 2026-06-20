@@ -21,7 +21,7 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
         
-        # 💡 핵심 수정 1: Pandas가 'None' 글자를 빈 값(NaN)으로 오해하여 생기는 Streamlit 충돌 방지
+        # 💡 Pandas가 'None' 글자를 빈 값(NaN)으로 오해하여 생기는 충돌 방지
         if 'Defect_Type' in df.columns:
             df['Defect_Type'] = df['Defect_Type'].fillna('None')
         
@@ -53,7 +53,11 @@ if uploaded_file is not None:
             with col2:
                 max_radius = np.sqrt(df_wafer['X_Die']**2 + df_wafer['Y_Die']**2).max()
                 df_wafer['Distance'] = np.sqrt(df_wafer['X_Die']**2 + df_wafer['Y_Die']**2)
-                df_wafer['Region'] = np.where(df_wafer['Distance'] <= (max_radius * 0.5), 'Center', 'Edge')
+                
+                # 💡 핵심 수정 부분: np.where 대신 안전한 Pandas loc 방식 사용
+                df_wafer['Region'] = 'Edge'  # 기본값을 Edge로 설정
+                if pd.notna(max_radius):
+                    df_wafer.loc[df_wafer['Distance'] <= (max_radius * 0.5), 'Region'] = 'Center' # 조건에 맞으면 Center로 변경
                 
                 def calc_yield(data):
                     if len(data) == 0: return 0
@@ -113,7 +117,6 @@ if uploaded_file is not None:
             col1, col2 = st.columns(2)
             with col1:
                 st.write("**불량 칩 설비 공통성(Commonality) 분석**")
-                # 💡 핵심 수정 2: 웨이퍼 개수가 적어도 에러가 나지 않도록 가변 인덱스 적용
                 default_idx = min(6, len(wafer_list) - 1)
                 analyze_wafer = st.selectbox("수율이 낮은 웨이퍼를 선택하여 분석하세요:", wafer_list, index=default_idx)
                 
@@ -130,7 +133,11 @@ if uploaded_file is not None:
                     
             with col2:
                 st.write("**설비 파라미터(FDC) 이상 연동 확인**")
-                df['Pass/Fail'] = np.where(df['BIN_Code'] == 'BIN01', 'Pass', 'Fail')
+                
+                # 💡 핵심 수정 부분 2: 여기도 안전한 Pandas loc 방식 사용
+                df['Pass/Fail'] = 'Fail'
+                df.loc[df['BIN_Code'] == 'BIN01', 'Pass/Fail'] = 'Pass'
+                
                 fig_fdc = px.scatter(df, x="FDC_Temp", y="FDC_Pressure", color="Pass/Fail",
                                      color_discrete_map={"Pass": "#2ca02c", "Fail": "#d62728"},
                                      opacity=0.6)
