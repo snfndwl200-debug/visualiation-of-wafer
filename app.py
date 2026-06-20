@@ -105,7 +105,8 @@ if uploaded_file is not None:
                     marker=dict(symbol='circle', size=10, opacity=0.8, line=dict(width=0.5, color='white'))
                 )
                 fig_map.update_layout(height=800, yaxis=dict(scaleanchor="x", scaleratio=1), margin=dict(t=50, b=0, l=0, r=0))
-                st.plotly_chart(fig_map, use_container_width=True)
+                # 💡 수정됨: 휠 줌 기능 추가
+                st.plotly_chart(fig_map, use_container_width=True, config={'scrollZoom': True})
                 
             with col2:
                 max_radius = np.sqrt(df_wafer['X_Die']**2 + df_wafer['Y_Die']**2).max()
@@ -180,7 +181,8 @@ if uploaded_file is not None:
                     # 찌그러짐 방지 및 크기 극대화
                     fig_comp.update_layout(height=800, yaxis=dict(scaleanchor="x", scaleratio=1), margin=dict(t=50, b=0, l=0, r=0))
                     
-                    st.plotly_chart(fig_comp, use_container_width=True)
+                    # 💡 수정됨: 휠 줌 기능 추가
+                    st.plotly_chart(fig_comp, use_container_width=True, config={'scrollZoom': True})
                 with col2:
                     st.info("💡 칩(Die) 하나하나의 위치가 정확히 유지되며, 붉은색이 짙을수록 고질적인 불량 다발 구역을 뜻합니다.")
 
@@ -216,7 +218,8 @@ if uploaded_file is not None:
                             showlegend=False
                         )
 
-                st.plotly_chart(fig_corr, use_container_width=True)
+                # 💡 수정됨: 휠 줌 기능 추가
+                st.plotly_chart(fig_corr, use_container_width=True, config={'scrollZoom': True})
 
         with tab5:
             st.subheader("Yield & Defect Analysis")
@@ -225,7 +228,8 @@ if uploaded_file is not None:
                 bin_counts = df['BIN_Code'].value_counts().reset_index()
                 bin_counts.columns = ['BIN_Code', 'Count']
                 fig_pie = px.pie(bin_counts, values='Count', names='BIN_Code', color='BIN_Code', color_discrete_map=COLOR_MAP, hole=0.4, template=PLOT_THEME, title="<b>테스트 항목별 비율</b>")
-                st.plotly_chart(fig_pie, use_container_width=True)
+                # 💡 수정됨: 휠 줌 기능 추가
+                st.plotly_chart(fig_pie, use_container_width=True, config={'scrollZoom': True})
             with col2:
                 df_defect = df[~df['Defect_Type'].isin(['None', 'No_Defect'])].copy()
                 if not df_defect.empty:
@@ -234,7 +238,8 @@ if uploaded_file is not None:
                     if not yir_df.empty and yir_df['Total_Defect'].sum() > 0:
                         yir_df['YIR (%)'] = (yir_df['Fail_Count'] / yir_df['Total_Defect']) * 100
                         fig_bar = px.bar(yir_df.sort_values('YIR (%)', ascending=False), x='Defect_Type', y='YIR (%)', color='YIR (%)', color_continuous_scale='Reds', template=PLOT_THEME, title="<b>결함 유형별 수율 영향도 (YIR)</b>")
-                        st.plotly_chart(fig_bar, use_container_width=True)
+                        # 💡 수정됨: 휠 줌 기능 추가
+                        st.plotly_chart(fig_bar, use_container_width=True, config={'scrollZoom': True})
 
         with tab6:
             st.subheader("Yield Drop Commonality Analysis & SPC")
@@ -251,7 +256,8 @@ if uploaded_file is not None:
             fig_trend.add_hline(y=mean_yield, line_dash="solid", line_color="green", annotation_text="Target (Mean)")
             fig_trend.add_hline(y=ucl, line_dash="dash", line_color="red", annotation_text="UCL (+3 Sigma)")
             fig_trend.add_hline(y=lcl, line_dash="dash", line_color="red", annotation_text="LCL (-3 Sigma)")
-            st.plotly_chart(fig_trend, use_container_width=True)
+            # 💡 수정됨: 휠 줌 기능 추가
+            st.plotly_chart(fig_trend, use_container_width=True, config={'scrollZoom': True})
             
             st.markdown("---")
             col1, col2 = st.columns(2)
@@ -273,7 +279,7 @@ if uploaded_file is not None:
                         file_name=f"{analyze_wafer}_Fail_List.csv",
                         mime="text/csv",
                     )
-                    st.info("현업에서 계측/품질 부서에 분석을 의뢰할 때 위 데이터를 전달합니다.")
+                    st.info("현업에서 계측/품질 부서에 분석 의뢰 시 위 데이터를 전달합니다.")
                 else:
                     st.success("선택하신 웨이퍼에 불량이 발견되지 않았습니다.")
                     
@@ -281,7 +287,8 @@ if uploaded_file is not None:
                 df['Pass/Fail'] = 'Fail'
                 df.loc[df['BIN_Code'] == 'BIN01', 'Pass/Fail'] = 'Pass'
                 fig_scatter = px.scatter(df, x="FDC_Temp", y="FDC_Pressure", color="Pass/Fail", color_discrete_map={"Pass": "#2ca02c", "Fail": "#d62728"}, opacity=0.5, template=PLOT_THEME, title="<b>FDC 파라미터 이상 확인</b>")
-                st.plotly_chart(fig_scatter, use_container_width=True)
+                # 💡 수정됨: 휠 줌 기능 추가
+                st.plotly_chart(fig_scatter, use_container_width=True, config={'scrollZoom': True})
 
         with tab7:
             st.subheader("Process Capability Index (Cp, Cpk)")
@@ -297,7 +304,8 @@ if uploaded_file is not None:
             
             fig_cd = px.histogram(df, x="Actual_CD", color="Pass/Fail", nbins=40, title="<b>Actual CD(선폭) 분포</b>", template=PLOT_THEME)
             fig_cd.add_vline(x=target, line_dash="dash", line_color="black")
-            st.plotly_chart(fig_cd, use_container_width=True)
+            # 💡 수정됨: 휠 줌 기능 추가
+            st.plotly_chart(fig_cd, use_container_width=True, config={'scrollZoom': True})
 
     except Exception as e:
         st.error(f"데이터를 처리하는 중 오류가 발생했습니다. (에러 내역: {e})")
