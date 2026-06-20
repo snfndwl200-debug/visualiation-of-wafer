@@ -25,7 +25,7 @@ if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
         
-        # 💡 Pandas 결측치 에러 방지
+        # 데이터의 결측치를 안전하게 'No_Defect'로 채워 에러를 방지합니다.
         if 'Defect_Type' in df.columns:
             df['Defect_Type'] = df['Defect_Type'].fillna('No_Defect')
             
@@ -85,14 +85,14 @@ if uploaded_file is not None:
             "⚙️ 7. 공정 능력 지수"
         ])
         
-        # 💡 공통 설정: 모든 그래프에 'plotly_white' 테마 적용으로 깔끔함 극대화
         PLOT_THEME = "plotly_white"
 
         with tab1:
             st.subheader("2D Wafer Map Visualization")
             df_wafer = df[df['Wafer_ID'] == selected_wafer].copy()
             
-            col1, col2 = st.columns([3, 1])
+            # 💡 [핵심 업그레이드 1] 화면 비율을 5:1로 넓히고 여백을 없애 웨이퍼 맵을 극대화
+            col1, col2 = st.columns([5, 1])
             with col1:
                 fig_map = px.scatter(
                     df_wafer, x="X_Die", y="Y_Die", color="BIN_Code",
@@ -102,11 +102,11 @@ if uploaded_file is not None:
                     template=PLOT_THEME
                 )
                 
-                # 💡 [핵심 UX 개선 1] 깔끔한 원형 마커, 반투명도, 하얀색 얇은 테두리 적용
                 fig_map.update_traces(
                     marker=dict(symbol='circle', size=10, opacity=0.8, line=dict(width=0.5, color='white'))
                 )
-                fig_map.update_layout(yaxis=dict(scaleanchor="x", scaleratio=1), margin=dict(t=50, b=0, l=0, r=0))
+                # height=800을 주어 화면을 세로로 꽉 채웁니다.
+                fig_map.update_layout(height=800, yaxis=dict(scaleanchor="x", scaleratio=1), margin=dict(t=50, b=0, l=0, r=0))
                 st.plotly_chart(fig_map, use_container_width=True)
                 
             with col2:
@@ -158,17 +158,15 @@ if uploaded_file is not None:
                 comp_df = df_lot.groupby(['X_Die', 'Y_Die'])['Is_Fail'].agg(['count', 'sum']).reset_index()
                 comp_df['Fail_Rate(%)'] = (comp_df['sum'] / comp_df['count']) * 100
                 
-                # 💡 [핵심 UX 개선 2] 점을 겹치는 방식이 아닌 부드러운 밀도 히트맵 적용
                 fig_comp = px.density_heatmap(
                     comp_df, x="X_Die", y="Y_Die", z="Fail_Rate(%)", histfunc="avg",
-                    nbinsx=35, nbinsy=35, # 해상도(부드러움) 조절
+                    nbinsx=35, nbinsy=35,
                     color_continuous_scale="Reds", 
                     title=f"<b>[{selected_lot}] 위치별 평균 불량률 히트맵</b>",
                     template=PLOT_THEME
                 )
-                fig_comp.update_layout(yaxis=dict(scaleanchor="x", scaleratio=1))
+                fig_comp.update_layout(height=700, yaxis=dict(scaleanchor="x", scaleratio=1))
                 st.plotly_chart(fig_comp, use_container_width=True)
-                st.info("💡 색상이 진하게 퍼진 영역은 여러 장의 웨이퍼에 걸쳐 고질적으로 불량이 발생하는 구역입니다.")
 
         with tab4:
             st.subheader("📈 Parameter Correlation (공정 마진 분석)")
@@ -204,21 +202,51 @@ if uploaded_file is not None:
                         st.plotly_chart(fig_bar, use_container_width=True)
 
         with tab6:
-            st.subheader("Yield Drop Commonality Analysis")
+            st.subheader("Yield Drop Commonality Analysis & SPC")
+            
+            # 💡 [핵심 업그레이드 2] SPC(통계적 공정 관리) 차트 구현
             trend_df = df.groupby('Wafer_ID').apply(lambda x: (len(x[x['BIN_Code'] == 'BIN01']) / len(x)) * 100).reset_index(name='Yield')
-            fig_trend = px.line(trend_df, x='Wafer_ID', y='Yield', markers=True, title="<b>웨이퍼별 수율 트렌드</b>", template=PLOT_THEME)
-            fig_trend.add_hline(y=trend_df['Yield'].mean(), line_dash="dot")
+            
+            # 수율의 평균과 3-Sigma 표준편차를 계산합니다.
+            mean_yield = trend_df['Yield'].mean()
+            std_yield = trend_df['Yield'].std()
+            ucl = mean_yield + (3 * std_yield) # 관리 상한선 (Upper Control Limit)
+            lcl = mean_yield - (3 * std_yield) # 관리 하한선 (Lower Control Limit)
+            
+            fig_trend = px.line(trend_df, x='Wafer_ID', y='Yield', markers=True, title="<b>웨이퍼별 수율 트렌드 (SPC Control Chart)</b>", template=PLOT_THEME)
+            
+            # 차트에 평균, UCL, LCL 기준선을 각각 그려줍니다.
+            fig_trend.add_hline(y=mean_yield, line_dash="solid", line_color="green", annotation_text="Target (Mean)")
+            fig_trend.add_hline(y=ucl, line_dash="dash", line_color="red", annotation_text="UCL (+3 Sigma)")
+            fig_trend.add_hline(y=lcl, line_dash="dash", line_color="red", annotation_text="LCL (-3 Sigma)")
             st.plotly_chart(fig_trend, use_container_width=True)
             
             st.markdown("---")
             col1, col2 = st.columns(2)
+            
             with col1:
-                st.write(f"**[{analyze_wafer}] 설비 공통성 분석**")
+                st.write(f"**[{analyze_wafer}] 설비 공통성 분석 및 리스트 추출**")
                 target_df = df[(df['Wafer_ID'] == analyze_wafer) & (df['BIN_Code'] != 'BIN01')]
+                
                 if not target_df.empty:
                     worst_eq = target_df['Equipment'].value_counts().idxmax()
                     worst_rate = (target_df['Equipment'].value_counts().max() / len(target_df)) * 100
                     st.error(f"🚨 선택하신 웨이퍼의 불량 칩 중 **{worst_rate:.1f}%**가 **[{worst_eq}]** 설비를 거쳤습니다.")
+                    
+                    # 💡 [핵심 업그레이드 3] 불량 칩(Fail Die) 리스트를 CSV로 다운로드할 수 있는 기능
+                    # 한글이 엑셀에서 깨지지 않도록 utf-8-sig 포맷으로 인코딩합니다.
+                    csv_data = target_df.to_csv(index=False).encode('utf-8-sig')
+                    
+                    st.download_button(
+                        label="📥 불량 칩 리스트 다운로드 (CSV)",
+                        data=csv_data,
+                        file_name=f"{analyze_wafer}_Fail_List.csv",
+                        mime="text/csv",
+                    )
+                    st.info("현업에서 계측/품질 부서에 분석을 의뢰할 때 위 데이터를 전달합니다.")
+                else:
+                    st.success("선택하신 웨이퍼에 불량이 발견되지 않았습니다.")
+                    
             with col2:
                 df['Pass/Fail'] = 'Fail'
                 df.loc[df['BIN_Code'] == 'BIN01', 'Pass/Fail'] = 'Pass'
