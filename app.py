@@ -184,20 +184,39 @@ if uploaded_file is not None:
                 with col2:
                     st.info("💡 칩(Die) 하나하나의 위치가 정확히 유지되며, 붉은색이 짙을수록 고질적인 불량 다발 구역을 뜻합니다.")
 
+        # ==========================================
+        # 💡 [버그 수정] Tab 4: statsmodels 의존성 제거
+        # 기존 trendline="ols" 옵션은 내부적으로 statsmodels 패키지를 필요로 하는데,
+        # 배포 환경에 해당 패키지가 없어서 에러가 발생했습니다.
+        # numpy.polyfit으로 직접 1차 회귀선을 계산해 동일한 결과를 그리도록 수정했습니다.
+        # ==========================================
         with tab4:
             st.subheader("📈 Parameter Correlation (공정 마진 분석)")
             if x_param and y_param:
-                try:
-                    fig_corr = px.scatter(
-                        df, x=x_param, y=y_param, color="BIN_Code", 
-                        color_discrete_map=COLOR_MAP, opacity=0.5,
-                        trendline="ols", 
-                        title=f"<b>{x_param} vs {y_param} 상관도 분석</b>",
-                        template=PLOT_THEME
-                    )
-                    st.plotly_chart(fig_corr, use_container_width=True)
-                except Exception as e:
-                    st.error("추세선을 그리기 위해 터미널에 `pip install statsmodels`를 입력해 설치해주세요.")
+                df_corr = df[[x_param, y_param, 'BIN_Code']].dropna()
+
+                fig_corr = px.scatter(
+                    df_corr, x=x_param, y=y_param, color="BIN_Code",
+                    color_discrete_map=COLOR_MAP, opacity=0.5,
+                    title=f"<b>{x_param} vs {y_param} 상관도 분석</b>",
+                    template=PLOT_THEME
+                )
+
+                # BIN_Code 그룹별로 1차 회귀선(OLS와 동일한 결과)을 numpy로 직접 계산해 추가
+                for bin_code in df_corr['BIN_Code'].unique():
+                    sub = df_corr[df_corr['BIN_Code'] == bin_code]
+                    if len(sub) >= 2 and sub[x_param].std() > 0:
+                        slope, intercept = np.polyfit(sub[x_param], sub[y_param], 1)
+                        x_range = np.linspace(sub[x_param].min(), sub[x_param].max(), 50)
+                        y_pred = slope * x_range + intercept
+                        fig_corr.add_scatter(
+                            x=x_range, y=y_pred, mode='lines',
+                            line=dict(color=COLOR_MAP.get(bin_code, 'gray'), width=2),
+                            name=f"{bin_code} 추세선",
+                            showlegend=False
+                        )
+
+                st.plotly_chart(fig_corr, use_container_width=True)
 
         with tab5:
             st.subheader("Yield & Defect Analysis")
