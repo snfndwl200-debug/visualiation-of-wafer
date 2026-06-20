@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import DBSCAN
 from sklearn.preprocessing import StandardScaler
@@ -15,63 +16,56 @@ COLOR_MAP = {
     "BIN03": "#ff7f0e", # Leakage
     "BIN04": "#ffbb78"  # Speed
 }
+PLOT_THEME = "plotly_white"
 
 # ==========================================
-# 사이드바 (Sidebar) - 컨트롤 패널
+# 0. 데이터 로드 로직 (데모 데이터 자동 로드 및 커스텀 업로드)
 # ==========================================
 st.sidebar.title("⚙️ Analysis Control")
-st.sidebar.markdown("데이터를 업로드하고 분석 옵션을 선택하세요.")
 
-uploaded_file = st.sidebar.file_uploader("📁 CSV Data 업로드", type=['csv'])
+# 1) 사이드바에 파일 업로더 배치
+uploaded_file = st.sidebar.file_uploader("📁 새로운 CSV Data 업로드", type=['csv'])
 
+# 2) 데이터 로드 결정 로직
+df = None
 if uploaded_file is not None:
+    # 사용자가 직접 파일을 올린 경우
     try:
         df = pd.read_csv(uploaded_file)
-        
-        # 데이터의 결측치를 안전하게 'No_Defect'로 채워 에러를 방지합니다.
+        st.sidebar.success("✅ 업로드한 사용자 데이터가 적용되었습니다.")
+    except Exception as e:
+        st.sidebar.error(f"파일을 읽는 중 에러가 발생했습니다: {e}")
+else:
+    # 파일을 올리지 않은 경우, 기본 데모 파일 자동 로드
+    default_file = 'wafer_log_data.csv'
+    if os.path.exists(default_file):
+        try:
+            df = pd.read_csv(default_file)
+            st.sidebar.info("💡 **포트폴리오 데모용 기본 수율 데이터가 자동 로드되었습니다.**\n\n다른 로그 파일을 분석하고 싶다면 위 업로더에 새 CSV를 넣어주세요.")
+        except Exception as e:
+            st.sidebar.error(f"기본 데이터를 읽는 중 에러가 발생했습니다: {e}")
+    else:
+        st.sidebar.warning(f"기본 데이터 파일('{default_file}')을 찾을 수 없습니다. CSV 파일을 업로드해 주세요.")
+
+# ==========================================
+# 메인 분석 로직 실행 (데이터가 정상 로드된 경우)
+# ==========================================
+if df is not None:
+    try:
+        # 데이터 전처리 (결측치 처리)
         if 'Defect_Type' in df.columns:
             df['Defect_Type'] = df['Defect_Type'].fillna('No_Defect')
             
         wafer_list = sorted(df['Wafer_ID'].dropna().unique())
         
+        # ==========================================
+        # 1. 사이드바 (Sidebar) - 최적화 및 공통 컨트롤 분리
+        # ==========================================
         st.sidebar.divider()
-        st.sidebar.header("🎛️ 분석 옵션 설정")
-        
-        # [Tab 1, 9, 10] 웨이퍼 선택 컨트롤 공유
-        st.sidebar.subheader("📍 단일 Wafer 분석")
+        st.sidebar.header("📍 공통 분석 대상 설정")
+        st.sidebar.caption("💡 여기서 선택한 웨이퍼는 [1. 2D 웨이퍼 맵], [9. 패턴 자동 분류], [10. WiW 방사형 분석] 탭의 결과에 공통으로 반영됩니다.")
         selected_wafer = st.sidebar.selectbox("Wafer_ID 선택:", wafer_list, key="map_wafer")
-        
-        # [Tab 2] Die Inspector 컨트롤
-        st.sidebar.subheader("🔎 특정 Die 상세 추적")
-        inspect_wafer = st.sidebar.selectbox("조회할 Wafer_ID:", wafer_list, key="inspect_wafer")
-        x_col, y_col = st.sidebar.columns(2)
-        with x_col:
-            x_in = st.number_input("X 좌표:", min_value=int(df['X_Die'].min()), max_value=int(df['X_Die'].max()), value=0)
-        with y_col:
-            y_in = st.number_input("Y 좌표:", min_value=int(df['Y_Die'].min()), max_value=int(df['Y_Die'].max()), value=0)
-            
-        # [Tab 3] Composite Map 컨트롤
-        st.sidebar.subheader("🔥 누적 불량 패턴 (Lot 단위)")
-        if 'Lot_ID' in df.columns:
-            lot_list = sorted(df['Lot_ID'].dropna().unique())
-            selected_lot = st.sidebar.selectbox("Lot_ID 선택:", lot_list)
-        else:
-            selected_lot = None
-            st.sidebar.warning("Lot_ID 컬럼이 없습니다.")
-            
-        # [Tab 4] Correlation 컨트롤
-        st.sidebar.subheader("📈 상관관계 분석 변수")
-        param_candidates = ['FDC_Temp', 'FDC_Pressure', 'RF_Power(W)', 'Actual_CD']
-        available_params = [p for p in param_candidates if p in df.columns]
-        if len(available_params) >= 2:
-            x_param = st.sidebar.selectbox("X축 변수:", available_params, index=0)
-            y_param = st.sidebar.selectbox("Y축 변수:", available_params, index=min(3, len(available_params)-1))
-        else:
-            x_param, y_param = None, None
-            
-        # [Tab 6] Commonality 컨트롤
-        st.sidebar.subheader("🚨 수율 Drop 추적")
-        analyze_wafer = st.sidebar.selectbox("수율 저하 Wafer_ID:", wafer_list, index=min(6, len(wafer_list) - 1), key="common_wafer")
+        st.sidebar.caption("위에서 분석할 타겟 웨이퍼를 선택해 주세요.")
 
         # ==========================================
         # 메인 화면 (Main Content) - 총 10개의 탭
@@ -91,10 +85,11 @@ if uploaded_file is not None:
             "📍 10. WiW 방사형 분석"
         ])
         
-        PLOT_THEME = "plotly_white"
-
+        # ------------------------------------------
+        # Tab 1: 2D 웨이퍼 맵
+        # ------------------------------------------
         with tab1:
-            st.subheader("2D Wafer Map Visualization")
+            st.info("💡 **[2D 웨이퍼 맵]** 웨이퍼 전체의 칩(Die) 테스트 결과를 시각적으로 확인합니다. 특정 구역에 불량이 집중되어 있는지 직관적으로 파악할 수 있습니다.")
             df_wafer = df[df['Wafer_ID'] == selected_wafer].copy()
             
             col1, col2 = st.columns([5, 1])
@@ -111,7 +106,6 @@ if uploaded_file is not None:
                 st.plotly_chart(fig_map, use_container_width=True, config={'scrollZoom': True})
                 
             with col2:
-                # 💡 버그 수정: 명시적 float 형변환으로 에러 원천 차단
                 max_r = np.sqrt(df_wafer['X_Die']**2 + df_wafer['Y_Die']**2).max()
                 max_radius = float(max_r) if pd.notna(max_r) else 0.0
                 
@@ -131,12 +125,26 @@ if uploaded_file is not None:
                 st.metric(label="Edge 영역 수율", value=f"{edge_yield:.2f}%", 
                           delta=f"Center 대비 {edge_yield - center_yield:.2f}%", delta_color="normal")
 
+        # ------------------------------------------
+        # Tab 2: 특정 Die 상세 추적 (전용 컨트롤러 내부 배치)
+        # ------------------------------------------
         with tab2:
-            st.subheader("🔎 특정 Die 상세 이력 조회 (Die Inspector)")
+            st.info("💡 **[특정 Die 상세 추적]** 의심스러운 좌표의 단일 칩 이력을 추적합니다. 어떤 설비를 거쳤고 공정 센서 값(FDC)은 어땠는지 개별 원인을 분석합니다.")
+            
+            # 탭 전용 컨트롤러 가로 배치
+            col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+            with col_ctrl1:
+                inspect_wafer = st.selectbox("조회할 Wafer_ID:", wafer_list, key="inspect_wafer")
+            with col_ctrl2:
+                x_in = st.number_input("X 좌표:", min_value=int(df['X_Die'].min()), max_value=int(df['X_Die'].max()), value=0)
+            with col_ctrl3:
+                y_in = st.number_input("Y 좌표:", min_value=int(df['Y_Die'].min()), max_value=int(df['Y_Die'].max()), value=0)
+            
+            st.markdown("---")
             target_die = df[(df['Wafer_ID'] == inspect_wafer) & (df['X_Die'] == x_in) & (df['Y_Die'] == y_in)]
             
             if target_die.empty:
-                st.warning("⚠️ 사이드바에서 입력하신 좌표에는 칩(Die) 데이터가 존재하지 않습니다.")
+                st.warning("⚠️ 입력하신 좌표에는 칩(Die) 데이터가 존재하지 않습니다.")
             else:
                 die_data = target_die.iloc[0].to_dict()
                 st.write(f"#### 📍 {inspect_wafer} [X: {x_in}, Y: {y_in}] 물성 요약")
@@ -153,9 +161,18 @@ if uploaded_file is not None:
                 m_col7.metric("플라즈마 전력 (RF_Power)", f"{die_data.get('RF_Power(W)', 0)} W")
                 m_col8.metric("계측 선폭 (Actual_CD)", f"{die_data.get('Actual_CD', 0)} nm")
 
+        # ------------------------------------------
+        # Tab 3: 누적 불량 패턴 (전용 컨트롤러 내부 배치)
+        # ------------------------------------------
         with tab3:
-            st.subheader("🔥 Composite Wafer Map (Gradient Scatter)")
-            if selected_lot:
+            st.info("💡 **[누적 불량 패턴]** 특정 로트(Lot)의 웨이퍼들을 겹쳐서 불량 다발 구역을 찾습니다. 붉은색이 진할수록 고질적인 설비나 공정 문제를 의심할 수 있습니다.")
+            
+            if 'Lot_ID' in df.columns:
+                lot_list = sorted(df['Lot_ID'].dropna().unique())
+                # 탭 전용 컨트롤러 가로 배치
+                selected_lot = st.selectbox("분석할 Lot_ID 선택:", lot_list)
+                st.markdown("---")
+                
                 df_lot = df[df['Lot_ID'] == selected_lot].copy()
                 df_lot['Is_Fail'] = (df_lot['BIN_Code'] != 'BIN01').astype(int)
                 
@@ -175,10 +192,27 @@ if uploaded_file is not None:
                     st.plotly_chart(fig_comp, use_container_width=True, config={'scrollZoom': True})
                 with col2:
                     st.info("💡 칩(Die) 하나하나의 위치가 정확히 유지되며, 붉은색이 짙을수록 고질적인 불량 다발 구역을 뜻합니다.")
+            else:
+                st.warning("데이터에 Lot_ID 컬럼이 없습니다.")
 
+        # ------------------------------------------
+        # Tab 4: 변수 상관관계 (전용 컨트롤러 내부 배치)
+        # ------------------------------------------
         with tab4:
-            st.subheader("📈 Parameter Correlation (공정 마진 분석)")
-            if x_param and y_param:
+            st.info("💡 **[변수 상관관계]** 두 공정 변수(예: 온도 vs 압력) 간의 마진을 분석합니다. 정상 칩과 불량 칩이 분포하는 스펙 영역을 확인하여 최적의 레시피를 찾습니다.")
+            
+            param_candidates = ['FDC_Temp', 'FDC_Pressure', 'RF_Power(W)', 'Actual_CD']
+            available_params = [p for p in param_candidates if p in df.columns]
+            
+            if len(available_params) >= 2:
+                # 탭 전용 컨트롤러 가로 배치
+                col_ctrl1, col_ctrl2 = st.columns(2)
+                with col_ctrl1:
+                    x_param = st.selectbox("X축 공정 변수 선택:", available_params, index=0)
+                with col_ctrl2:
+                    y_param = st.selectbox("Y축 공정 변수 선택:", available_params, index=min(3, len(available_params)-1))
+                st.markdown("---")
+                
                 df_corr = df[[x_param, y_param, 'BIN_Code']].dropna()
                 fig_corr = px.scatter(
                     df_corr, x=x_param, y=y_param, color="BIN_Code", color_discrete_map=COLOR_MAP, opacity=0.5,
@@ -186,7 +220,6 @@ if uploaded_file is not None:
                 )
                 for bin_code in df_corr['BIN_Code'].unique():
                     sub = df_corr[df_corr['BIN_Code'] == bin_code]
-                    # 💡 버그 수정: std() 값을 스칼라로 강제 변환
                     sub_std = float(sub[x_param].std()) if len(sub) >= 2 else 0.0
                     if len(sub) >= 2 and sub_std > 0:
                         slope, intercept = np.polyfit(sub[x_param], sub[y_param], 1)
@@ -194,9 +227,14 @@ if uploaded_file is not None:
                         y_pred = slope * x_range + intercept
                         fig_corr.add_scatter(x=x_range, y=y_pred, mode='lines', line=dict(color=COLOR_MAP.get(bin_code, 'gray'), width=2), showlegend=False)
                 st.plotly_chart(fig_corr, use_container_width=True, config={'scrollZoom': True})
+            else:
+                st.warning("상관관계를 분석할 공정 변수가 2개 이상 존재하지 않습니다.")
 
+        # ------------------------------------------
+        # Tab 5: 수율 및 결함 분석
+        # ------------------------------------------
         with tab5:
-            st.subheader("Yield & Defect Analysis")
+            st.info("💡 **[수율 및 결함 분석]** 전체 테스트 통과 비율과 주요 불량 원인(결함 유형)의 수율 영향도(YIR)를 파악해, 개선 우선순위를 결정합니다.")
             col1, col2 = st.columns(2)
             with col1:
                 bin_counts = df['BIN_Code'].value_counts().reset_index()
@@ -213,8 +251,18 @@ if uploaded_file is not None:
                         fig_bar = px.bar(yir_df.sort_values('YIR (%)', ascending=False), x='Defect_Type', y='YIR (%)', color='YIR (%)', color_continuous_scale='Reds', template=PLOT_THEME, title="<b>결함 유형별 수율 영향도 (YIR)</b>")
                         st.plotly_chart(fig_bar, use_container_width=True, config={'scrollZoom': True})
 
+        # ------------------------------------------
+        # Tab 6: 수율 Drop 공통성 분석 (전용 컨트롤러 내부 배치)
+        # ------------------------------------------
         with tab6:
-            st.subheader("Yield Drop Commonality Analysis & SPC")
+            st.info("💡 **[수율 Drop 추적]** 수율이 급락한 특정 웨이퍼가 어떤 설비에서 불량을 양산했는지(공통성) 역추적하여 설비 유지보수 타겟을 잡습니다.")
+            
+            # 탭 전용 컨트롤러 가로 배치
+            col_ctrl1, col_ctrl2 = st.columns([1, 2])
+            with col_ctrl1:
+                analyze_wafer = st.selectbox("🚨 공통성을 분석할 수율 저하 Wafer_ID:", wafer_list, index=min(6, len(wafer_list) - 1), key="common_wafer")
+            
+            st.markdown("---")
             trend_df = df.groupby('Wafer_ID').apply(lambda x: (len(x[x['BIN_Code'] == 'BIN01']) / len(x)) * 100).reset_index(name='Yield')
             mean_yield, std_yield = trend_df['Yield'].mean(), trend_df['Yield'].std()
             fig_trend = px.line(trend_df, x='Wafer_ID', y='Yield', markers=True, title="<b>웨이퍼별 수율 트렌드 (SPC Control Chart)</b>", template=PLOT_THEME)
@@ -228,20 +276,21 @@ if uploaded_file is not None:
             with col1:
                 target_df = df[(df['Wafer_ID'] == analyze_wafer) & (df['BIN_Code'] != 'BIN01')]
                 if not target_df.empty:
-                    # 💡 버그 수정: 명시적 형변환
                     worst_eq = str(target_df['Equipment'].value_counts().idxmax())
                     worst_rate = float((target_df['Equipment'].value_counts().max() / len(target_df)) * 100)
-                    st.error(f"🚨 불량 칩 중 **{worst_rate:.1f}%**가 **[{worst_eq}]** 설비를 거쳤습니다.")
+                    st.error(f"🚨 **[{analyze_wafer}]** 불량 칩 중 **{worst_rate:.1f}%**가 **[{worst_eq}]** 설비를 거쳤습니다. (해당 설비 점검 요망)")
                 else:
                     st.success("선택하신 웨이퍼에 불량이 발견되지 않았습니다.")
             with col2:
                 df['Pass/Fail'] = np.where(df['BIN_Code'] == 'BIN01', 'Pass', 'Fail')
-                fig_scatter = px.scatter(df, x="FDC_Temp", y="FDC_Pressure", color="Pass/Fail", color_discrete_map={"Pass": "#2ca02c", "Fail": "#d62728"}, opacity=0.5, template=PLOT_THEME, title="<b>FDC 파라미터 이상 확인</b>")
+                fig_scatter = px.scatter(df, x="FDC_Temp", y="FDC_Pressure", color="Pass/Fail", color_discrete_map={"Pass": "#2ca02c", "Fail": "#d62728"}, opacity=0.5, template=PLOT_THEME, title="<b>FDC 파라미터 이상 산포 확인</b>")
                 st.plotly_chart(fig_scatter, use_container_width=True, config={'scrollZoom': True})
 
+        # ------------------------------------------
+        # Tab 7: 공정능력지수
+        # ------------------------------------------
         with tab7:
-            st.subheader("Process Capability Index (Cp, Cpk)")
-            # 💡 버그 수정: 통계 지표 계산 시 명시적 float 변환
+            st.info("💡 **[공정능력지수]** 핵심 치수(CD)가 타겟 스펙 안에 얼마나 잘 들어오는지(Cp, Cpk) 통계적으로 분석하여 양산 안정성을 평가합니다.")
             target = float(df['Target_CD'].iloc[0]) if 'Target_CD' in df.columns else 50.0
             USL, LSL = target + 4.0, target - 4.0
             mu = float(df['Actual_CD'].mean())
@@ -257,9 +306,11 @@ if uploaded_file is not None:
             fig_cd.add_vline(x=target, line_dash="dash", line_color="black")
             st.plotly_chart(fig_cd, use_container_width=True, config={'scrollZoom': True})
 
+        # ------------------------------------------
+        # 💡 [신규] Tab 8: ML 변수 추출
+        # ------------------------------------------
         with tab8:
-            st.subheader("🤖 ML 기반 핵심 공정 변수 자동 추출 (Random Forest)")
-            
+            st.info("💡 **[ML 변수 추출]** 수백 개의 설비 센서 데이터 중, 머신러닝이 판단한 수율 저하의 가장 큰 원인(Feature)을 자동으로 찾아내 분석 시간을 단축합니다.")
             ml_features = ['FDC_Temp', 'FDC_Pressure', 'RF_Power(W)', 'Actual_CD']
             available_ml_features = [col for col in ml_features if col in df.columns]
             
@@ -267,11 +318,9 @@ if uploaded_file is not None:
                 df_ml = df.dropna(subset=available_ml_features).copy()
                 df_ml['Is_Fail'] = np.where(df_ml['BIN_Code'] != 'BIN01', 1, 0)
                 
-                # Random Forest 모델 학습
                 rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
                 rf_model.fit(df_ml[available_ml_features], df_ml['Is_Fail'])
                 
-                # 변수 중요도 데이터프레임 생성
                 importance_df = pd.DataFrame({
                     'Feature': available_ml_features,
                     'Importance': rf_model.feature_importances_
@@ -287,43 +336,41 @@ if uploaded_file is not None:
                 st.plotly_chart(fig_rf, use_container_width=True, config={'scrollZoom': True})
                 
                 top_feature = importance_df.iloc[-1]['Feature']
-                st.error(f"💡 **머신러닝(RF) 분석 결과**: **[{top_feature}]** 변수가 수율 Drop의 주요 원인일 확률이 가장 높습니다. 해당 파라미터의 설비 로그와 산포를 최우선으로 점검하세요.")
+                st.error(f"🚨 **머신러닝(RF) 분석 결과**: **[{top_feature}]** 변수가 수율 Drop의 주요 원인일 확률이 가장 높습니다. 해당 파라미터의 설비 로그와 산포를 최우선으로 점검하세요.")
             else:
                 st.warning("분석에 필요한 공정 변수(FDC) 데이터가 충분하지 않습니다.")
 
+        # ------------------------------------------
+        # 💡 [신규] Tab 9: 패턴 자동 분류
+        # ------------------------------------------
         with tab9:
-            st.subheader("🎯 불량 공간 패턴(Spatial Pattern) 자동 분류 및 원인 추론")
-            
+            st.info("💡 **[패턴 자동 분류]** 군집화 AI가 불량의 공간적 패턴을 라벨링합니다. 패턴(Edge, Center, Scratch 등)에 따라 특정 설비나 공정 결함을 즉각적으로 추론할 수 있습니다.")
             df_fail = df[(df['Wafer_ID'] == selected_wafer) & (df['BIN_Code'] != 'BIN01')].copy()
             
             if len(df_fail) < 5:
                 st.success(f"현재 선택된 웨이퍼({selected_wafer})는 불량 개수가 너무 적어 명확한 패턴을 도출할 수 없습니다 (Random Pattern으로 간주).")
             else:
-                # 1. 위치 기반 군집화 (DBSCAN)
                 coords = df_fail[['X_Die', 'Y_Die']].values
                 scaler = StandardScaler()
                 coords_scaled = scaler.fit_transform(coords)
                 
-                # 군집화 수행
                 db = DBSCAN(eps=0.5, min_samples=3).fit(coords_scaled)
                 df_fail['Cluster'] = db.labels_
                 
-                # 💡 버그 수정: 계산 과정을 안전한 float형으로 철저하게 강제 변환
                 max_r = np.sqrt(df['X_Die']**2 + df['Y_Die']**2).max()
                 max_radius = float(max_r) if pd.notna(max_r) else 0.0
                 patterns = []
                 
                 for cluster_id in df_fail['Cluster'].unique():
-                    c_id = int(cluster_id) # 강제 정수 변환
+                    c_id = int(cluster_id)
                     
-                    if c_id == -1: # 노이즈 (군집 미포함)
+                    if c_id == -1: 
                         patterns.extend(['Random'] * len(df_fail[df_fail['Cluster'] == cluster_id]))
                         continue
                         
                     cluster_data = df_fail[df_fail['Cluster'] == cluster_id]
                     mean_radius = float(np.mean(np.sqrt(cluster_data['X_Die']**2 + cluster_data['Y_Die']**2)))
                     
-                    # 스크래치(선형) 판별을 위한 종횡비 계산 시 Series 리턴 방지
                     dx = float(cluster_data['X_Die'].max()) - float(cluster_data['X_Die'].min())
                     dy = float(cluster_data['Y_Die'].max()) - float(cluster_data['Y_Die'].min())
                     aspect_ratio = max(dx, dy) / (min(dx, dy) + 1e-5)
@@ -358,21 +405,22 @@ if uploaded_file is not None:
                     found_patterns = df_fail['Detected_Pattern'].unique()
                     
                     if 'Edge Ring' in found_patterns:
-                        st.error("**[Edge Ring] 가장자리 띠 패턴**\n- **의심 원인**: 식각(Etch) 공정 플라즈마 밀도 불균일, 웨이퍼 테두리 온도 구배 문제, 포토 공정 EBR(Edge Bead Removal) 불량.")
+                        st.error("**[Edge Ring] 가장자리 띠 패턴**\n- **의심 원인**: 식각(Etch) 공정 플라즈마 밀도 불균일, 웨이퍼 테두리 온도 구배 문제, 포토 공정 EBR 불량.")
                     if 'Center Cluster' in found_patterns:
-                        st.warning("**[Center Cluster] 중심부 뭉침 패턴**\n- **의심 원인**: 박막(CVD) 증착 시 가스 분사 집중, 스핀 코팅 RPM/노즐 이상, 식각 공정 중앙부 Over-Etch.")
+                        st.warning("**[Center Cluster] 중심부 뭉침 패턴**\n- **의심 원인**: 박막(CVD) 증착 시 가스 분사 집중, 스핀 코팅 RPM 이상, 식각 공정 중앙부 Over-Etch.")
                     if 'Scratch' in found_patterns:
-                        st.info("**[Scratch] 선형 긁힘 패턴**\n- **의심 원인**: CMP 평탄화 공정 중 슬러리 응집/패드 마모, 혹은 웨이퍼 이송 로봇 암(Robot Arm)에 의한 물리적 스크래치.")
+                        st.info("**[Scratch] 선형 긁힘 패턴**\n- **의심 원인**: CMP 평탄화 공정 중 슬러리 응집/패드 마모, 혹은 웨이퍼 이송 로봇 암(Robot Arm) 물리적 스크래치.")
                     if 'Random' in found_patterns:
                         st.success("**[Random] 무작위 패턴**\n- **의심 원인**: 클린룸 환경 요인, 설비 내 파티클(Particle) 낙하 등 일반적인 무작위 결함.")
 
+        # ------------------------------------------
+        # 💡 [신규] Tab 10: WiW 방사형 분석
+        # ------------------------------------------
         with tab10:
-            st.subheader("📍 WiW (Within-Wafer) 방사형 균일도 심층 분석")
-            
+            st.info("💡 **[WiW 방사형 분석]** 웨이퍼 중심부터 가장자리까지의 거리(Radius)에 따른 산포를 추적합니다. 미세 공정에서 Center-Edge 간의 균일도(Uniformity)를 잡는 데 필수적입니다.")
             df_wiw = df[df['Wafer_ID'] == selected_wafer].copy()
             
             if not df_wiw.empty:
-                # 중심(0,0)으로부터의 반경(Radius) 계산
                 df_wiw['Radius'] = np.sqrt(df_wiw['X_Die']**2 + df_wiw['Y_Die']**2)
                 df_wiw['Radius_Bin'] = df_wiw['Radius'].round(0)
                 
@@ -405,12 +453,6 @@ if uploaded_file is not None:
                     fig_wiw_yield.update_traces(line=dict(color='green', width=3), marker=dict(size=8))
                     fig_wiw_yield.update_yaxes(range=[0, 105])
                     st.plotly_chart(fig_wiw_yield, use_container_width=True, config={'scrollZoom': True})
-                    
-                st.info("💡 **엔지니어링 인사이트**: 미세 공정에서는 웨이퍼 Center와 Edge 간의 챔버 온도, 플라즈마 밀도 차이로 인해 물리적 산포가 발생합니다. 위 차트에서 급격히 CD가 틀어지거나 수율이 꺾이는 지점을 확인하여 공정 Recipe를 튜닝할 수 있습니다.")
-            else:
-                st.warning("선택하신 웨이퍼의 데이터가 없습니다.")
 
     except Exception as e:
         st.error(f"데이터를 처리하는 중 오류가 발생했습니다. (에러 내역: {e})")
-else:
-    st.info("👈 좌측 사이드바에서 먼저 파이썬 코드로 생성한 'wafer_log_data.csv' 파일을 업로드해주세요.")
