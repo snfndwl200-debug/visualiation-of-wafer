@@ -62,7 +62,7 @@ if df is not None:
         # 1. 사이드바 (Sidebar) - 최적화 및 공통 컨트롤 분리
         # ==========================================
         st.sidebar.divider()
-        st.sidebar.header("📍 공통 분석 대상 설정")
+        st.sidebar.header("공통 분석 대상 설정")
         st.sidebar.caption("💡 여기서 선택한 웨이퍼는 [1. 2D 웨이퍼 맵], [9. 패턴 자동 분류], [10. WiW 방사형 분석] 탭의 결과에 공통으로 반영됩니다.")
         selected_wafer = st.sidebar.selectbox("Wafer_ID 선택:", wafer_list, key="map_wafer")
         st.sidebar.caption("위에서 분석할 타겟 웨이퍼를 선택해 주세요.")
